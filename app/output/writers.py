@@ -1,0 +1,91 @@
+from __future__ import annotations
+
+import csv
+import json
+from pathlib import Path
+
+from app.models import CrawlError, InvalidItem, ProductDetail, model_to_row
+
+PRODUCT_CSV_FIELDNAMES = [
+    "site",
+    "country",
+    "title",
+    "price_usd",
+    "review_count",
+    "seller_badge",
+    "search_position",
+    "monthly_sold_count",
+    "is_bestseller",
+    "bestseller_rank",
+    "validity",
+    "usage_validity",
+    "activation_validity",
+    "network_type",
+    "network_generation",
+    "carrier_support_local",
+    "data_amount",
+    "product_url",
+    "asin",
+    "site_product_id",
+    "seller",
+    "brand",
+    "evidence",
+]
+
+
+def write_jsonl(path: Path, items: list[ProductDetail]) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    with path.open("w", encoding="utf-8") as f:
+        for item in items:
+            f.write(json.dumps(model_to_row(item), ensure_ascii=False) + "\n")
+
+
+def write_csv(path: Path, items: list[ProductDetail]) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    with path.open("w", newline="", encoding="utf-8-sig") as f:
+        writer = csv.DictWriter(f, fieldnames=PRODUCT_CSV_FIELDNAMES)
+        writer.writeheader()
+        for item in items:
+            row = model_to_row(item)
+            row["carrier_support_local"] = json.dumps(row["carrier_support_local"], ensure_ascii=False)
+            row["evidence"] = json.dumps(row["evidence"], ensure_ascii=False)
+            writer.writerow(row)
+
+
+def write_failed_jsonl(path: Path, failures: list[CrawlError]) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    with path.open("w", encoding="utf-8") as f:
+        for failure in failures:
+            f.write(json.dumps(model_to_row(failure), ensure_ascii=False) + "\n")
+
+
+def write_invalid_jsonl(path: Path, items: list[InvalidItem]) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    with path.open("w", encoding="utf-8") as f:
+        for item in items:
+            f.write(json.dumps(model_to_row(item), ensure_ascii=False) + "\n")
+
+
+def write_invalid_csv(path: Path, items: list[InvalidItem]) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    fieldnames = [
+        "site",
+        "country",
+        "title",
+        "price_usd",
+        "search_price_usd",
+        "invalid_reason",
+        "product_url",
+        "asin",
+        "site_product_id",
+        "raw_price_texts",
+        "evidence",
+    ]
+    with path.open("w", newline="", encoding="utf-8-sig") as f:
+        writer = csv.DictWriter(f, fieldnames=fieldnames)
+        writer.writeheader()
+        for item in items:
+            row = model_to_row(item)
+            row["raw_price_texts"] = json.dumps(row["raw_price_texts"], ensure_ascii=False)
+            row["evidence"] = json.dumps(row["evidence"], ensure_ascii=False)
+            writer.writerow(row)

@@ -1,0 +1,10 @@
+﻿{
+    "site":  "amazon_us",
+    "country":  "kr",
+    "query":  "",
+    "limit":  100,
+    "source":  "C:\\Codex\\eSIMPriceCollector_USA\\data\\crawls\\out_amazon_us_kr_100\\results.jsonl",
+    "crawled_at":  "2026-07-03T01:44:26.0784522Z",
+    "published_at":  "2026-07-03T01:44:26.5314464Z",
+    "item_count":  100
+}

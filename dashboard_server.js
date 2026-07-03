@@ -1,0 +1,755 @@
+const fs = require('fs');
+const path = require('path');
+const http = require('http');
+const url = require('url');
+const xlsx = require('xlsx');
+const FX = require('./dashboard/exchange-rate');
+
+const PORT = process.env.PORT ? Number(process.env.PORT) : 4173;
+const ROOT = __dirname;
+const DASHBOARD_DIR = path.join(ROOT, 'dashboard');
+const DATA_DIR = path.join(DASHBOARD_DIR, 'data');
+const CRAWLS_DIR = path.join(ROOT, 'data', 'crawls');
+const INDEX_PATH = path.join(DATA_DIR, 'index.json');
+const DEFAULT_SITE = 'amazon_us';
+const DEFAULT_COUNTRY = 'kr';
+const CARRIER_CONFIG = {
+  kr: [
+    ['skt', 'SKT'],
+    ['kt', 'KT'],
+    ['lgu', 'LGU+'],
+  ],
+  vn: [
+    ['viettel', 'Viettel'],
+    ['vinaphone', 'VinaPhone'],
+    ['mobifone', 'MobiFone'],
+    ['vietnamobile', 'Vietnamobile'],
+  ],
+  tw: [
+    ['chunghwa', 'Chunghwa Telecom'],
+    ['taiwan_mobile', 'Taiwan Mobile'],
+    ['fareastone', 'Far EasTone'],
+  ],
+  hk: [
+    ['cmhk', 'CMHK'],
+    ['csl', 'CSL'],
+    ['smartone', 'SmarTone'],
+    ['three_hk', '3HK'],
+  ],
+  mo: [
+    ['ctm', 'CTM'],
+    ['china_telecom_macau', 'China Telecom (Macau)'],
+    ['three_macau', '3 Macau'],
+  ],
+  th: [
+    ['ais', 'AIS'],
+    ['dtac', 'dtac'],
+    ['truemove', 'TrueMove H'],
+  ],
+  jp: [
+    ['docomo', 'NTT docomo'],
+    ['au', 'au (KDDI)'],
+    ['softbank', 'SoftBank'],
+    ['rakuten', 'Rakuten Mobile'],
+  ],
+};
+const CARRIER_ALIASES = {
+  kr: {
+    skt: ['skt', 'sk telecom', 'sktelecom'],
+    kt: ['kt', 'kt olleh', 'olleh'],
+    lgu: ['lg u+', 'lgu+', 'uplus', 'lg u plus', 'lgu'],
+  },
+  vn: {
+    viettel: ['viettel'],
+    vinaphone: ['vinaphone', 'vina phone', 'vnpt'],
+    mobifone: ['mobifone', 'mobi phone'],
+    vietnamobile: ['vietnamobile', 'vietnam mobile'],
+  },
+  tw: {
+    chunghwa: ['chunghwa', '中華電信', 'cht'],
+    taiwan_mobile: ['taiwan mobile', '台灣大哥大', 'twm'],
+    fareastone: ['far eas tone', 'far eastone', '遠傳', 'fet'],
+  },
+  hk: {
+    cmhk: ['cmhk', 'china mobile hong kong', '中國移動香港'],
+    csl: ['csl', 'one2free', '1o1o', 'pccw-hkt'],
+    smartone: ['smartone', 'smart one'],
+    three_hk: ['3hk', '3 hong kong', 'three hk'],
+  },
+  mo: {
+    ctm: ['ctm', 'macau telecom', '澳門電訊'],
+    china_telecom_macau: ['china telecom macau', '中國電信澳門', 'ctm macau'],
+    three_macau: ['3 macau', 'three macau', 'hutchison telephone macau'],
+  },
+  th: {
+    ais: ['ais', 'advanced info service'],
+    dtac: ['dtac'],
+    truemove: ['truemove', 'truemove h', 'true move'],
+  },
+  jp: {
+    docomo: ['docomo', 'ntt docomo'],
+    au: ['au', 'kddi', 'au by kddi'],
+    softbank: ['softbank', 'soft bank'],
+    rakuten: ['rakuten mobile', 'rakuten'],
+  },
+};
+const serverRateCache = {
+  value: null,
+  getItem() {
+    return this.value;
+  },
+  setItem(_key, value) {
+    this.value = value;
+  },
+};
+
+function readJsonFile(jsonPath) {
+  const raw = fs.readFileSync(jsonPath, 'utf8').replace(/^﻿/, '');
+  return JSON.parse(raw);
+}
+
+function parseJsonl(text) {
+  return text
+    .split(/\r?\n/)
+    .map((line) => line.trim())
+    .filter(Boolean)
+    .map((line) => {
+      try {
+        return JSON.parse(line);
+      } catch (_) {
+        return null;
+      }
+    })
+    .filter(Boolean);
+}
+
+function extractDays(value) {
+  if (!value) return null;
+  const m = String(value).match(/(\d{1,4})\s*일/);
+  return m ? Number(m[1]) : null;
+}
+
+function getCarrierDefinitions(country) {
+  return CARRIER_CONFIG[country] || [];
+}
+
+function inferLegacyCarrierLocal(raw, country) {
+  const aliasMap = CARRIER_ALIASES[country] || {};
+  const evidenceValues = raw.evidence && typeof raw.evidence === 'object'
+    ? Object.values(raw.evidence).flat().filter(Boolean)
+    : [];
+  const bag = [raw.title, raw.seller, raw.brand, ...evidenceValues].join(' ').toLowerCase();
+  const inferred = {};
+  for (const [code, aliases] of Object.entries(aliasMap)) {
+    inferred[code] = aliases.some((alias) => bag.includes(String(alias).toLowerCase()));
+  }
+  return inferred;
+}
+
+function normalizeCarrierLocal(carrierSupport, country, raw) {
+  const definitions = getCarrierDefinitions(country);
+  if (!definitions.length) return {};
+
+  const source = carrierSupport && typeof carrierSupport === 'object'
+    ? carrierSupport
+    : inferLegacyCarrierLocal(raw, country);
+
+  const normalized = {};
+  definitions.forEach(([code]) => {
+    normalized[code] = source[code] === true;
+  });
+  return normalized;
+}
+
+function carrierLabel(carrierSupport, country) {
+  return getCarrierDefinitions(country)
+    .filter(([code]) => carrierSupport && carrierSupport[code])
+    .map(([, label]) => label)
+    .join(', ');
+}
+
+function normalizeItem(raw) {
+  const country = raw.country || DEFAULT_COUNTRY;
+  const carrier = normalizeCarrierLocal(raw.carrier_support_local, country, raw);
+  const parsedPrice = Number(raw.price_usd);
+  const parsedPriceKrw = Number(raw.price_krw);
+  return {
+    site: raw.site || null,
+    country,
+    title: raw.title || '',
+    product_url: typeof raw.product_url === 'string' ? raw.product_url : null,
+    price_usd: Number.isFinite(parsedPrice) && parsedPrice > 0 ? parsedPrice : null,
+    price_krw: Number.isFinite(parsedPriceKrw) && parsedPriceKrw > 0 ? parsedPriceKrw : null,
+    review_count: Number.isFinite(Number(raw.review_count)) ? Number(raw.review_count) : null,
+    seller_badge: raw.seller_badge || null,
+    search_position: Number.isFinite(Number(raw.search_position)) ? Number(raw.search_position) : null,
+    monthly_sold_count: Number.isFinite(Number(raw.monthly_sold_count)) ? Number(raw.monthly_sold_count) : null,
+    is_bestseller: typeof raw.is_bestseller === 'boolean' ? raw.is_bestseller : null,
+    bestseller_rank: Number.isFinite(Number(raw.bestseller_rank)) ? Number(raw.bestseller_rank) : null,
+    network_type: raw.network_type || 'unknown',
+    network_generation: raw.network_generation || 'unknown',
+    network_generation_inferred: raw.network_generation_inferred || raw.network_generation || 'unknown',
+    network_generation_confidence: raw.network_generation_confidence || (raw.network_generation && raw.network_generation !== 'unknown' ? 'high' : 'low'),
+    data_amount: raw.data_amount || null,
+    usage_validity: raw.usage_validity || raw.validity || null,
+    activation_validity: raw.activation_validity || null,
+    seller: raw.seller || null,
+    brand: raw.brand || null,
+    asin: raw.asin || null,
+    site_product_id: raw.site_product_id || null,
+    carrier_support_local: carrier,
+    usage_days: extractDays(raw.usage_validity || raw.validity || null),
+    activation_days: extractDays(raw.activation_validity || null),
+  };
+}
+
+function buildNetworkGenerationCounts(items, field = 'network_generation') {
+  const keys = ['5g_capable', 'lte_4g_only', 'unknown'];
+  const labels = {
+    '5g_capable': '5G 지원',
+    'lte_4g_only': 'LTE/4G 전용',
+    unknown: '미확인',
+  };
+  const counts = {};
+  keys.forEach((key) => {
+    counts[key] = items.filter((it) => (it[field] || 'unknown') === key).length;
+  });
+  const total = items.length || 0;
+  const knownTotal = counts['5g_capable'] + counts['lte_4g_only'];
+  const shares = {};
+  const knownOnlyShares = {};
+  keys.forEach((key) => {
+    shares[key] = total ? Math.round((counts[key] / total) * 100) : 0;
+    knownOnlyShares[key] = key === 'unknown' ? 0 : (knownTotal ? Math.round((counts[key] / knownTotal) * 100) : 0);
+  });
+  return { counts, shares, knownOnlyShares, labels };
+}
+
+function keepDashboardItem(item) {
+  return Number.isFinite(item.price_usd) && item.price_usd > 0;
+}
+
+function getLatestResultsFile() {
+  if (!fs.existsSync(CRAWLS_DIR)) return null;
+  const dirs = fs
+    .readdirSync(CRAWLS_DIR, { withFileTypes: true })
+    .filter((d) => d.isDirectory() && /^out/i.test(d.name))
+    .map((d) => {
+      const fullDir = path.join(CRAWLS_DIR, d.name);
+      const fullPath = path.join(fullDir, 'results.jsonl');
+      if (!fs.existsSync(fullPath)) return null;
+      const stat = fs.statSync(fullPath);
+      return {
+        dir: d.name,
+        fullPath,
+        file: path.join('data', 'crawls', d.name, 'results.jsonl'),
+        mtimeMs: stat.mtimeMs,
+      };
+    })
+    .filter(Boolean)
+    .sort((a, b) => b.mtimeMs - a.mtimeMs);
+
+  return dirs[0] || null;
+}
+
+function summarize(items) {
+  const prices = items.map((it) => it.price_usd).filter((n) => Number.isFinite(n));
+  const pricesKrw = items.map((it) => it.price_krw).filter((n) => Number.isFinite(n));
+  const sorted = [...prices].sort((a, b) => a - b);
+  const median =
+    sorted.length === 0
+      ? null
+      : sorted.length % 2 === 1
+        ? sorted[(sorted.length - 1) / 2]
+        : Math.round((sorted[sorted.length / 2 - 1] + sorted[sorted.length / 2]) / 2);
+
+  const roamingCount = items.filter((it) => it.network_type === 'roaming').length;
+  const localCount = items.filter((it) => it.network_type === 'local').length;
+  const unlimitedCount = items.filter((it) => String(it.data_amount || '').toLowerCase() === 'unlimited').length;
+  const generationSummary = buildNetworkGenerationCounts(items, 'network_generation');
+
+  const carrierCounts = {};
+  getCarrierDefinitions(items[0] && items[0].country ? items[0].country : DEFAULT_COUNTRY).forEach(([code]) => {
+    carrierCounts[code] = items.filter((it) => it.carrier_support_local && it.carrier_support_local[code]).length;
+  });
+  const reviewValues = items.map((it) => it.review_count).filter((n) => Number.isFinite(n)).sort((a, b) => a - b);
+  const reviewMedian =
+    reviewValues.length === 0
+      ? null
+      : reviewValues.length % 2 === 1
+        ? reviewValues[(reviewValues.length - 1) / 2]
+        : Math.round((reviewValues[reviewValues.length / 2 - 1] + reviewValues[reviewValues.length / 2]) / 2);
+  const badgeCounts = {};
+  for (const it of items) {
+    if (!it.seller_badge) continue;
+    badgeCounts[it.seller_badge] = (badgeCounts[it.seller_badge] || 0) + 1;
+  }
+  const salesKnownCount = items.filter((it) => Number.isFinite(it.monthly_sold_count)).length;
+  const bestsellerBadgeCount = items.filter((it) => it.is_bestseller === true).length;
+  const bestsellerRankKnownCount = items.filter((it) => Number.isFinite(it.bestseller_rank)).length;
+  const reviewKnownCount = reviewValues.length;
+  const top10Count = items.filter((it) => Number.isFinite(it.search_position) && it.search_position <= 10).length;
+
+  const byDataAmount = {};
+  const byUsageValidity = {};
+  const byActivationValidity = {};
+
+  for (const it of items) {
+    const d = it.data_amount || 'unknown';
+    const u = it.usage_validity || 'unknown';
+    const a = it.activation_validity || 'unknown';
+    byDataAmount[d] = (byDataAmount[d] || 0) + 1;
+    byUsageValidity[u] = (byUsageValidity[u] || 0) + 1;
+    byActivationValidity[a] = (byActivationValidity[a] || 0) + 1;
+  }
+
+  return {
+    total: items.length,
+    priceMin: sorted.length ? sorted[0] : null,
+    priceMax: sorted.length ? sorted[sorted.length - 1] : null,
+    priceAvg: sorted.length ? Math.round((sorted.reduce((a, b) => a + b, 0) / sorted.length) * 100) / 100 : null,
+    priceMedian: median,
+    priceKrwMin: pricesKrw.length ? Math.min(...pricesKrw) : null,
+    priceKrwMax: pricesKrw.length ? Math.max(...pricesKrw) : null,
+    priceKrwAvg: pricesKrw.length ? Math.round(pricesKrw.reduce((a, b) => a + b, 0) / pricesKrw.length) : null,
+    priceKrwMedian: FX.summarizeNumbers(pricesKrw).median,
+    roamingCount,
+    localCount,
+    networkGenerationCounts: generationSummary.counts,
+    networkGenerationShares: generationSummary.shares,
+    networkGenerationKnownOnlyShares: generationSummary.knownOnlyShares,
+    unlimitedCount,
+    carrierCounts,
+    reviewKnownCount,
+    reviewMedian,
+    badgeCounts,
+    top10Count,
+    salesKnownCount,
+    bestsellerBadgeCount,
+    bestsellerRankKnownCount,
+    byDataAmount,
+    byUsageValidity,
+    byActivationValidity,
+  };
+}
+
+function makeExportFilename(site) {
+  const ts = new Date().toISOString().replace(/[:.]/g, '-');
+  return `${site || 'market'}_esim_filtered_${ts}.xlsx`;
+}
+
+function sendExcel(res, items, site) {
+  const rows = items.map((it) => ({
+    site: it.site || site || '',
+    title: it.title || '',
+    price_usd: it.price_usd ?? '',
+    price_krw: it.price_krw ?? '',
+    review_count: it.review_count ?? '',
+    monthly_sold_count: it.monthly_sold_count ?? '',
+    is_bestseller: it.is_bestseller === null ? '' : (it.is_bestseller ? 'true' : 'false'),
+    bestseller_rank: it.bestseller_rank ?? '',
+    network_type: it.network_type || '',
+    network_generation: it.network_generation || 'unknown',
+    data_amount: it.data_amount || '',
+    usage_validity: it.usage_validity || '',
+    activation_validity: it.activation_validity || '',
+    carrier_support_local: carrierLabel(it.carrier_support_local, it.country || DEFAULT_COUNTRY),
+    seller: it.seller || '',
+    brand: it.brand || '',
+    asin: it.asin || '',
+    site_product_id: it.site_product_id || '',
+  }));
+
+  const headers = [
+    'site',
+    'title',
+    'price_usd',
+    'price_krw',
+    'review_count',
+    'monthly_sold_count',
+    'is_bestseller',
+    'bestseller_rank',
+    'network_type',
+    'network_generation',
+    'data_amount',
+    'usage_validity',
+    'activation_validity',
+    'carrier_support_local',
+    'seller',
+    'brand',
+    'asin',
+    'site_product_id',
+  ];
+
+  const workbook = xlsx.utils.book_new();
+  const worksheet = xlsx.utils.json_to_sheet(rows, { header: headers });
+  xlsx.utils.book_append_sheet(workbook, worksheet, 'filtered');
+
+  const buffer = xlsx.write(workbook, { type: 'buffer', bookType: 'xlsx' });
+  const filename = makeExportFilename(site);
+  res.writeHead(200, {
+    'Content-Type': 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+    'Content-Disposition': `attachment; filename="${filename}"`,
+    'Content-Length': buffer.length,
+    'Cache-Control': 'no-store',
+  });
+  res.end(buffer);
+}
+
+function normalizeIndexShape(indexObj) {
+  const raw = indexObj && typeof indexObj === 'object' ? indexObj : {};
+  const latest = raw.latest && !Array.isArray(raw.latest) ? raw.latest : {};
+  const runs = Array.isArray(raw.runs) ? raw.runs : [];
+
+  const normalizedLatest = {};
+  for (const [site, record] of Object.entries(latest)) {
+    if (!record || typeof record !== 'object') continue;
+    if (record.csv || record.jsonl) {
+      normalizedLatest[site] = {
+        [DEFAULT_COUNTRY]: { ...record, site: record.site || site, country: record.country || DEFAULT_COUNTRY },
+      };
+      continue;
+    }
+    normalizedLatest[site] = {};
+    for (const [country, countryRecord] of Object.entries(record)) {
+      if (countryRecord && typeof countryRecord === 'object') {
+        normalizedLatest[site][country] = {
+          ...countryRecord,
+          site: countryRecord.site || site,
+          country: countryRecord.country || country,
+        };
+      }
+    }
+  }
+
+  return {
+    latest: normalizedLatest,
+    runs: runs.map((run) => ({ ...run, site: run.site || DEFAULT_SITE, country: run.country || DEFAULT_COUNTRY })),
+  };
+}
+
+function readIndexData() {
+  if (fs.existsSync(INDEX_PATH)) {
+    try {
+      const raw = readJsonFile(INDEX_PATH);
+      return normalizeIndexShape(raw);
+    } catch (_) {
+      // fallback below
+    }
+  }
+
+  const latest = getLatestResultsFile();
+  if (!latest) {
+    return { latest: {}, runs: [] };
+  }
+
+  return {
+    latest: {
+      [DEFAULT_SITE]: {
+        [DEFAULT_COUNTRY]: {
+          site: DEFAULT_SITE,
+          country: DEFAULT_COUNTRY,
+          csv: latest.file.replace(/results\.jsonl$/i, 'results.csv').replaceAll('\\', '/'),
+          jsonl: latest.file.replaceAll('\\', '/'),
+          metadata: null,
+          source: latest.file,
+          crawled_at: new Date(latest.mtimeMs).toISOString(),
+          published_at: null,
+          item_count: null,
+        },
+      },
+    },
+    runs: [],
+  };
+}
+
+function resolveRepoPath(relPath) {
+  if (!relPath) return null;
+  if (path.isAbsolute(relPath)) return relPath;
+  const cleanPath = relPath.replace(/^\.\//, '');
+  if (cleanPath.startsWith('data/') || cleanPath.startsWith('data\\')) {
+    return path.join(ROOT, cleanPath);
+  }
+  if (cleanPath.startsWith('dashboard/data/') || cleanPath.startsWith('dashboard\\data\\')) {
+    return path.join(ROOT, cleanPath);
+  }
+  return path.join(DATA_DIR, cleanPath);
+}
+
+function getDatasetRecord(indexData, site, country, datasetId) {
+  if (datasetId) {
+    const run = indexData.runs.find(
+      (entry) =>
+        String(entry.id) === String(datasetId) &&
+        (entry.site || DEFAULT_SITE) === site &&
+        (entry.country || DEFAULT_COUNTRY) === country,
+    );
+    if (run) return run;
+  }
+  return (indexData.latest[site] && indexData.latest[site][country]) || null;
+}
+
+function readDataset(record) {
+  if (!record || !record.jsonl) {
+    return {
+      found: false,
+      message: 'No dataset found for selected site.',
+      file: null,
+      generatedAt: null,
+      items: [],
+      summary: summarize([]),
+      record: null,
+    };
+  }
+
+  const jsonlPath = resolveRepoPath(record.jsonl);
+  if (!jsonlPath || !fs.existsSync(jsonlPath)) {
+    return {
+      found: false,
+      message: `Dataset file not found: ${record.jsonl}`,
+      file: record.jsonl,
+      generatedAt: record.crawled_at || null,
+      items: [],
+      summary: summarize([]),
+      record,
+    };
+  }
+
+  const raw = fs.readFileSync(jsonlPath, 'utf8');
+  const items = parseJsonl(raw).map(normalizeItem).filter(keepDashboardItem);
+  return {
+    found: true,
+    file: record.source || record.jsonl,
+    generatedAt: record.crawled_at || new Date(fs.statSync(jsonlPath).mtimeMs).toISOString(),
+    items,
+    summary: summarize(items),
+    record,
+  };
+}
+
+function readLatestData(site = DEFAULT_SITE, country = DEFAULT_COUNTRY, datasetId = null) {
+  const indexData = readIndexData();
+  const record = getDatasetRecord(indexData, site, country, datasetId);
+  const data = readDataset(record);
+  return {
+    ...data,
+    index: indexData,
+  };
+}
+
+async function loadExchangeRateMeta() {
+  return FX.fetchExchangeRate(typeof fetch === 'function' ? fetch.bind(globalThis) : null, {
+    storage: serverRateCache,
+  });
+}
+
+async function readLatestDataWithExchangeRate(site = DEFAULT_SITE, country = DEFAULT_COUNTRY, datasetId = null) {
+  const data = readLatestData(site, country, datasetId);
+  const exchangeRate = await loadExchangeRateMeta();
+  const items = FX.attachKrwPrices(data.items, exchangeRate);
+  return {
+    ...data,
+    items,
+    summary: summarize(items),
+    exchangeRate,
+  };
+}
+
+function applyFilters(items, queryObj) {
+  const q = String(queryObj.q || '').trim().toLowerCase();
+  const network = String(queryObj.network || '').trim();
+  const generation = String(queryObj.generation || '').trim();
+  const dataAmount = String(queryObj.dataAmount || '').trim();
+  const usage = String(queryObj.usage || '').trim();
+  const activation = String(queryObj.activation || '').trim();
+  const carrier = String(queryObj.carrier || '').trim();
+  const minPrice = queryObj.minPrice ? Number(queryObj.minPrice) : null;
+  const maxPrice = queryObj.maxPrice ? Number(queryObj.maxPrice) : null;
+  const sort = String(queryObj.sort || 'priceAsc').trim();
+
+  const filtered = items.filter((it) => {
+    if (network && it.network_type !== network) return false;
+    if (generation && (it.network_generation || 'unknown') !== generation) return false;
+    if (dataAmount && (it.data_amount || '') !== dataAmount) return false;
+    if (usage && (it.usage_validity || '') !== usage) return false;
+    if (activation && (it.activation_validity || '') !== activation) return false;
+
+    if (carrier === 'any' && !Object.values(it.carrier_support_local || {}).some(Boolean)) {
+      return false;
+    }
+    if (carrier && carrier !== 'any' && !it.carrier_support_local?.[carrier]) {
+      return false;
+    }
+
+    if (Number.isFinite(minPrice) && Number.isFinite(it.price_usd) && it.price_usd < minPrice) return false;
+    if (Number.isFinite(maxPrice) && Number.isFinite(it.price_usd) && it.price_usd > maxPrice) return false;
+
+    if (!q) return true;
+    const bag = [
+      it.title,
+      it.seller,
+      it.brand,
+      it.seller_badge,
+      it.network_type,
+      it.network_generation,
+      it.data_amount,
+      it.usage_validity,
+      it.activation_validity,
+    ]
+      .join(' ')
+      .toLowerCase();
+    return bag.includes(q);
+  });
+
+  if (sort === 'priceDesc') {
+    filtered.sort((a, b) => (b.price_usd ?? -1) - (a.price_usd ?? -1));
+  } else if (sort === 'salesDesc') {
+    filtered.sort((a, b) => {
+      const aSales = Number.isFinite(a.monthly_sold_count) ? a.monthly_sold_count : -1;
+      const bSales = Number.isFinite(b.monthly_sold_count) ? b.monthly_sold_count : -1;
+      if (bSales !== aSales) return bSales - aSales;
+
+      const aBest = a.is_bestseller === true ? 1 : 0;
+      const bBest = b.is_bestseller === true ? 1 : 0;
+      if (bBest !== aBest) return bBest - aBest;
+
+      const aRank = Number.isFinite(a.bestseller_rank) ? a.bestseller_rank : Number.MAX_SAFE_INTEGER;
+      const bRank = Number.isFinite(b.bestseller_rank) ? b.bestseller_rank : Number.MAX_SAFE_INTEGER;
+      if (aRank !== bRank) return aRank - bRank;
+
+      return (a.price_usd ?? Number.MAX_SAFE_INTEGER) - (b.price_usd ?? Number.MAX_SAFE_INTEGER);
+    });
+  } else if (sort === 'reviewDesc') {
+    filtered.sort((a, b) => {
+      const aReviews = Number.isFinite(a.review_count) ? a.review_count : -1;
+      const bReviews = Number.isFinite(b.review_count) ? b.review_count : -1;
+      if (bReviews !== aReviews) return bReviews - aReviews;
+      return (a.price_usd ?? Number.MAX_SAFE_INTEGER) - (b.price_usd ?? Number.MAX_SAFE_INTEGER);
+    });
+  } else if (sort === 'positionAsc') {
+    filtered.sort((a, b) => {
+      const aPos = Number.isFinite(a.search_position) ? a.search_position : Number.MAX_SAFE_INTEGER;
+      const bPos = Number.isFinite(b.search_position) ? b.search_position : Number.MAX_SAFE_INTEGER;
+      if (aPos !== bPos) return aPos - bPos;
+      return (a.price_usd ?? Number.MAX_SAFE_INTEGER) - (b.price_usd ?? Number.MAX_SAFE_INTEGER);
+    });
+  } else if (sort === 'usageAsc') {
+    filtered.sort((a, b) => (a.usage_days ?? Number.MAX_SAFE_INTEGER) - (b.usage_days ?? Number.MAX_SAFE_INTEGER));
+  } else {
+    filtered.sort((a, b) => (a.price_usd ?? Number.MAX_SAFE_INTEGER) - (b.price_usd ?? Number.MAX_SAFE_INTEGER));
+  }
+
+  return filtered;
+}
+
+const mime = {
+  '.html': 'text/html; charset=utf-8',
+  '.js': 'application/javascript; charset=utf-8',
+  '.css': 'text/css; charset=utf-8',
+  '.json': 'application/json; charset=utf-8',
+  '.csv': 'text/csv; charset=utf-8',
+  '.jsonl': 'application/x-ndjson; charset=utf-8',
+};
+
+function sendJson(res, status, body) {
+  res.writeHead(status, { 'Content-Type': 'application/json; charset=utf-8', 'Cache-Control': 'no-store' });
+  res.end(JSON.stringify(body));
+}
+
+function createServer() {
+  return http.createServer(async (req, res) => {
+    const parsedUrl = url.parse(req.url, true);
+
+    try {
+      if (parsedUrl.pathname === '/api/index') {
+        sendJson(res, 200, readIndexData());
+        return;
+      }
+
+      if (parsedUrl.pathname === '/api/latest') {
+        const site = String(parsedUrl.query.site || DEFAULT_SITE);
+        const country = String(parsedUrl.query.country || DEFAULT_COUNTRY);
+        const dataset = parsedUrl.query.dataset ? String(parsedUrl.query.dataset) : null;
+        const data = await readLatestDataWithExchangeRate(site, country, dataset);
+        if (!data.found) {
+          sendJson(res, 200, data);
+          return;
+        }
+
+        const filtered = applyFilters(data.items, parsedUrl.query || {});
+        sendJson(res, 200, {
+          found: true,
+          file: data.file,
+          generatedAt: data.generatedAt,
+          items: filtered,
+          summary: summarize(filtered),
+          totalBeforeFilter: data.items.length,
+          site,
+          country,
+          dataset,
+          exchangeRate: data.exchangeRate,
+        });
+        return;
+      }
+
+      if (parsedUrl.pathname === '/api/export.xlsx') {
+        const site = String(parsedUrl.query.site || DEFAULT_SITE);
+        const country = String(parsedUrl.query.country || DEFAULT_COUNTRY);
+        const dataset = parsedUrl.query.dataset ? String(parsedUrl.query.dataset) : null;
+        const data = await readLatestDataWithExchangeRate(site, country, dataset);
+        if (!data.found) {
+          sendJson(res, 404, { message: data.message || 'No data found.' });
+          return;
+        }
+        const filtered = applyFilters(data.items, parsedUrl.query || {});
+        sendExcel(res, filtered, site);
+        return;
+      }
+
+      const requestPath = parsedUrl.pathname === '/' ? '/index.html' : parsedUrl.pathname;
+      const safePath = requestPath.replace(/^\/+/, '');
+      const fullPath = path.join(DASHBOARD_DIR, safePath);
+
+      if (!fullPath.startsWith(DASHBOARD_DIR) || !fs.existsSync(fullPath) || fs.statSync(fullPath).isDirectory()) {
+        res.writeHead(404, { 'Content-Type': 'text/plain; charset=utf-8' });
+        res.end('Not found');
+        return;
+      }
+
+      const ext = path.extname(fullPath).toLowerCase();
+      const contentType = mime[ext] || 'application/octet-stream';
+      res.writeHead(200, { 'Content-Type': contentType, 'Cache-Control': 'no-store' });
+      fs.createReadStream(fullPath).pipe(res);
+    } catch (error) {
+      sendJson(res, 500, {
+        message: error instanceof Error ? error.message : String(error),
+      });
+    }
+  });
+}
+
+function startServer(port = PORT) {
+  const server = createServer();
+  server.listen(port, () => {
+    console.log(`[dashboard] http://localhost:${port}`);
+  });
+  return server;
+}
+
+if (require.main === module) {
+  startServer();
+}
+
+module.exports = {
+  parseJsonl,
+  summarize,
+  normalizeItem,
+  normalizeIndexShape,
+  readLatestData,
+  readLatestDataWithExchangeRate,
+  loadExchangeRateMeta,
+  readIndexData,
+  applyFilters,
+  createServer,
+  startServer,
+};
