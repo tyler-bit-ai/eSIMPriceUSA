@@ -1,9 +1,23 @@
 # eSIMPriceCollector_USA
 
-미국 Amazon(amazon.com) 마켓플레이스의 eSIM 상품을 국가별로 수집하고, 정규화된 결과를 CSV/JSONL과 대시보드로 비교하는 크롤러입니다.
+미국 Amazon(amazon.com) 마켓플레이스의 eSIM 상품을 국가별로 수집하고, 정규화된 결과를 CSV/JSONL과 대시보드로 비교하는 크롤러입니다.  
 현재 `amazon_us`를 지원하며, 국가 축은 `kr`, `vn`, `th`, `tw`, `hk`, `mo`, `jp`를 사용합니다.
 
 이 프로젝트는 [`eSIMPriceCollector_Japan`](../eSIMPriceCollector_Japan)의 아키텍처와 대시보드 구조를 그대로 따르되, 대상 마켓플레이스를 Amazon US로, 대상 국가를 미국 대신 일본으로 바꾸고 Qoo10 관련 기능은 제외했습니다.
+
+## Dashboard Preview
+
+현재 대시보드 전체 화면 (7개국 비교 모드):
+
+![Dashboard Full](docs/images/dashboard-full.png)
+
+대시보드 주요 구성:
+- **필터 칩**: 국가(7개국), 사용기간(1\~3일 / 4\~7일 / 8일+) 필터
+- **요약 카드**: 전체 상품 수, 평균 1일 가격, 최저가, Local 네트워크 비율, 5G 지원 비율
+- **가격 히트맵**: 국가 × 사용기간별 1일당 최저가/평균가 토글 (동적 색상 등급)
+- **가성비 랭킹**: 1일당 가격 TOP 10 (국가, 네트워크 타입 표시)
+- **시장 분석 차트**: 네트워크 타입, 통신사별, 가격대 분포
+- **상세 테이블**: 전체 상품 목록 (페이지네이션, 엑셀 다운로드)
 
 ## Design Note
 - 실행 단위: `site + country + query`
