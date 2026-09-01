@@ -4,7 +4,7 @@
     "query":  "",
     "limit":  100,
     "source":  "C:\\Codex\\eSIMPriceCollector_USA\\data\\crawls\\out_amazon_us_tw_100\\results.jsonl",
-    "crawled_at":  "2026-07-03T01:58:48.5813412Z",
-    "published_at":  "2026-07-03T01:58:49.0166892Z",
-    "item_count":  49
+    "crawled_at":  "2026-09-01T01:37:57.8848634Z",
+    "published_at":  "2026-09-01T01:37:58.2743453Z",
+    "item_count":  34
 }
