@@ -7,17 +7,20 @@
 
 ## Dashboard Preview
 
-현재 대시보드 전체 화면 (7개국 비교 모드):
+현재 대시보드 전체 화면 (라이트 모드, 다크 모드는 우측 상단 버튼으로 전환):
 
 ![Dashboard Full](docs/images/dashboard-full.png)
 
 대시보드 주요 구성:
-- **필터 칩**: 국가(7개국), 사용기간(1\~3일 / 4\~7일 / 8일+) 필터
-- **요약 카드**: 전체 상품 수, 평균 1일 가격, 최저가, Local 네트워크 비율, 5G 지원 비율
-- **가격 히트맵**: 국가 × 사용기간별 1일당 최저가/평균가 토글 (동적 색상 등급)
-- **가성비 랭킹**: 1일당 가격 TOP 10 (국가, 네트워크 타입 표시)
-- **시장 분석 차트**: 네트워크 타입, 통신사별, 가격대 분포
-- **상세 테이블**: 전체 상품 목록 (페이지네이션, 엑셀 다운로드)
+- **좌측 고정 필터**: 국가·셀러·사용기간(복수 선택), 네트워크, 망 세대, 데이터, 통신사, 가격 범위(USD), 검색, 정렬
+- **핵심 요약**: 현재 필터 기준 1일 최저가 카드 + 국가별 최저 1일가·변동률 카드(클릭 시 국가 필터)
+- **가격 추이**: 수집 시점별 중앙가(USD), 표본이 부족한 국가는 제외하고 안내
+- **셀러 경쟁력**: 국가 × 기간 칸 중 셀러별 최저가 보유 수 (Amazon US는 플랫폼이 하나라 셀러 기준으로 비교)
+- **가격 히트맵**: 국가 × 사용기간(1 / 2\~3 / 4\~5 / 6\~7 / 8\~10 / 11\~15 / 16일+) 1일당 최저/중앙가, 셀 클릭 시 필터
+- **Local vs Roaming / 망 세대 구성**
+- **시점별 변경 상품**: 이전 수집 시점을 골라 가격 인하·인상, 신규 노출, 노출 종료 비교
+- **가성비 Top 10 / 전체 상품 목록**: SIM 카테고리 순위 표시, 페이지네이션, CSV 다운로드
+- **다크 모드**: 선택값 저장, 없으면 시스템 설정을 따름
 
 ## Design Note
 - 실행 단위: `site + country + query`
@@ -37,7 +40,13 @@
 - 대시보드 제공
   국가/데이터셋 선택, 필터, KPI, 정렬, 다운로드
 - KRW 환산 가격 지원
-  `price_usd` 기준으로 `price_krw`를 계산해 표시
+  `price_usd` 기준으로 `price_krw`를 계산해 표시 (Frankfurter 실시간 환율, 실패 시 캐시 사용)
+- 비여행 상품 제외
+  미국 현지 통신사 플랜(T-Mobile, Jethro Mobile, "USA eSIM" 등), eSIM 어댑터·리더·물리 eSIM 카드,
+  IoT·트래커·카메라용 SIM, SIM과 무관한 상품, 제목 추출에 실패한 행은 `invalid.jsonl`에
+  `invalid_reason=non_travel_product`로 분리되고, 대시보드는 과거 데이터에서도 숨깁니다.
+  여러 나라를 함께 안내하는 다국가 플랜은 제외하지 않습니다.
+  규칙은 `app/pipeline/validation.py`와 `dashboard/travel-filter.js`에 같은 내용으로 있으며 테스트가 일치를 검사합니다.
 
 ## Install
 ```powershell
@@ -117,23 +126,18 @@ npm run dashboard
 브라우저에서 `http://localhost:8090` (정적) 또는 `http://localhost:4173` (Node) 접속.
 
 대시보드에서 제공하는 것:
-- **필터 칩**: 전체 국가 / 국가별, 사용기간별 필터
-- **데이터셋 선택**: 선택한 `site + country` 조합의 latest/run 목록
-- **요약 KPI**: 전체 상품 수, 평균 1일 가격(KRW), 최저가(KRW), Local 비율
-- **가격 히트맵**: 국가 × 기간 교차 테이블 (최저가/평균가 토글, 동적 색상)
-- **가성비 랭킹**: 1일당 가격 기준 TOP 10
-- **시장 분석 차트**: 네트워크 타입, 통신사별, 가격대 분포
-- **고급 필터**: 검색어, 네트워크, 데이터 용량, 사용기간, 통신사, 가격 범위
-- **정렬**: 가격, 판매량, 리뷰, 사용기간
-- **상세 테이블**: 번호, 국가, 플랫폼, 상품명, 가격 USD/KRW, 1일당, 리뷰, 판매량, 네트워크, 데이터, 사용기간, 활성화기간, 통신사, 셀러, 브랜드
-- **다운로드**: 필터 결과 / 전체 상품 엑셀 다운로드
+- **데이터셋 선택**: `최신` 또는 수집 날짜별(모든 국가 묶음) 데이터셋
+- **필터/요약/차트**: 위 `Dashboard Preview` 구성 참고 (모든 계산은 브라우저에서 수행)
+- **시점별 변경 상품**: 선택한 데이터셋과 이전 수집 시점의 공통 국가만 비교하며, 수집 건수가 크게 다르면 안내를 표시
+- **SIM 카테고리 순위**: Amazon `Best Sellers Rank`의 Cell Phone SIM Cards 순위 (베스트셀러 배지가 아님)
+- **정렬**: 1일당, 가격, 리뷰, SIM 카테고리 순위, 사용기간
+- **다운로드**: 현재 필터 결과를 CSV(UTF-8 BOM, Excel 호환)로 저장
 
 KRW 환산 동작:
 - `price_krw = Math.round(price_usd * rate)`
-- 환율은 Frankfurter 기준 `USD/KRW`를 사용
-- 로컬 서버 모드에서는 `/api/latest`와 `/api/export.xlsx`에 `price_krw`가 포함됨
-- 정적 배포(GitHub Pages)에서는 브라우저가 환율을 조회하고, 다운로드 파일도 `price_krw`를 포함한 CSV로 생성함
-- 환율 API 실패 시 최근 성공 환율 캐시를 재사용할 수 있음
+- 환율은 Frankfurter 기준 `USD/KRW`를 브라우저가 실시간 조회하고, 12시간 동안 캐시함
+- 조회에 실패하면 최근 성공 환율 캐시(최대 7일)를 재사용하고, 캐시도 없으면 KRW 환산·1일당 비교를 비활성화함
+- `dashboard_server.js`의 `/api/latest`, `/api/export.xlsx`는 그대로 유지되지만 화면은 정적 파일(`data/index.json`, `data/**/*.jsonl`)만 사용함
 
 ## Output Files
 
@@ -163,6 +167,7 @@ KRW 환산 동작:
 python -m pytest -q
 node --check dashboard_server.js
 node --check dashboard\exchange-rate.js
+node --check dashboard\travel-filter.js
 node --check dashboard\app.js
 ```
 
