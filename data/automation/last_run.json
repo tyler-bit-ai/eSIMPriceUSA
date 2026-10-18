@@ -1,0 +1,20 @@
+{
+  "started_at": "2026-10-18T07:07:43Z",
+  "finished_at": "2026-10-18T07:07:59Z",
+  "status": "success",
+  "published": 1,
+  "total": 1,
+  "limit": 3,
+  "results": [
+    {
+      "site": "amazon_us",
+      "country": "kr",
+      "status": "crawled",
+      "item_count": 3,
+      "failed_count": 0,
+      "reason": "",
+      "previous_count": 15,
+      "duration_s": 16
+    }
+  ]
+}
