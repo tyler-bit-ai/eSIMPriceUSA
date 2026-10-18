@@ -1,3 +1,4 @@
 {"started_at": "2026-10-18T07:07:43Z", "finished_at": "2026-10-18T07:07:59Z", "status": "success", "published": 1, "total": 1}
 {"started_at": "2026-10-18T07:54:07Z", "finished_at": "2026-10-18T07:54:23Z", "status": "success", "published": 1, "total": 1}
 {"started_at": "2026-10-18T08:13:40Z", "finished_at": "2026-10-18T08:27:30Z", "status": "partial_success", "published": 2, "total": 7}
+{"started_at": "2026-10-18T09:04:10Z", "finished_at": "2026-10-18T09:08:15Z", "status": "failure", "published": 0, "total": 5}

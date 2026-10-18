@@ -1,78 +1,58 @@
 {
-  "started_at": "2026-10-18T08:13:40Z",
-  "finished_at": "2026-10-18T08:27:30Z",
-  "status": "partial_success",
-  "published": 2,
-  "total": 7,
+  "started_at": "2026-10-18T09:04:10Z",
+  "finished_at": "2026-10-18T09:08:15Z",
+  "status": "failure",
+  "published": 0,
+  "total": 5,
   "limit": 100,
   "results": [
     {
       "site": "amazon_us",
-      "country": "kr",
-      "status": "published",
-      "item_count": 92,
-      "failed_count": 0,
-      "reason": "",
-      "previous_count": 15,
-      "duration_s": 335
-    },
-    {
-      "site": "amazon_us",
-      "country": "vn",
-      "status": "published",
-      "item_count": 27,
-      "failed_count": 0,
-      "reason": "",
-      "previous_count": 16,
-      "duration_s": 253
-    },
-    {
-      "site": "amazon_us",
       "country": "th",
       "status": "skipped_low_count",
-      "item_count": 4,
+      "item_count": 0,
       "failed_count": 0,
-      "reason": "4 < 18 (previous 59)",
+      "reason": "0 < 18 (previous 59)",
       "previous_count": 59,
-      "duration_s": 50
+      "duration_s": 49
     },
     {
       "site": "amazon_us",
       "country": "tw",
       "status": "skipped_low_count",
-      "item_count": 0,
+      "item_count": 2,
       "failed_count": 0,
-      "reason": "0 < 11 (previous 34)",
+      "reason": "2 < 11 (previous 34)",
       "previous_count": 34,
-      "duration_s": 46
+      "duration_s": 48
     },
     {
       "site": "amazon_us",
       "country": "hk",
       "status": "skipped_low_count",
-      "item_count": 2,
+      "item_count": 0,
       "failed_count": 0,
-      "reason": "2 < 9 (previous 30)",
+      "reason": "0 < 9 (previous 30)",
       "previous_count": 30,
-      "duration_s": 48
+      "duration_s": 50
     },
     {
       "site": "amazon_us",
       "country": "mo",
       "status": "skipped_low_count",
-      "item_count": 0,
+      "item_count": 1,
       "failed_count": 0,
-      "reason": "0 < 9 (previous 30)",
+      "reason": "1 < 9 (previous 30)",
       "previous_count": 30,
-      "duration_s": 49
+      "duration_s": 50
     },
     {
       "site": "amazon_us",
       "country": "jp",
       "status": "skipped_low_count",
-      "item_count": 1,
+      "item_count": 2,
       "failed_count": 0,
-      "reason": "1 < 30 (previous 100)",
+      "reason": "2 < 30 (previous 100)",
       "previous_count": 100,
       "duration_s": 48
     }
