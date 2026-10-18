@@ -1,10 +1,10 @@
-﻿{
-    "site":  "amazon_us",
-    "country":  "vn",
-    "query":  "",
-    "limit":  100,
-    "source":  "C:\\Codex\\eSIMPriceCollector_USA\\data\\crawls\\out_amazon_us_vn_100\\results.jsonl",
-    "crawled_at":  "2026-09-01T01:31:56.0138565Z",
-    "published_at":  "2026-09-01T01:31:56.3645589Z",
-    "item_count":  16
+{
+  "site": "amazon_us",
+  "country": "vn",
+  "query": "",
+  "limit": 100,
+  "source": "data/crawls/scheduled_2026-10-18/amazon_us_vn/results.jsonl",
+  "crawled_at": "2026-10-18T08:23:28.716773Z",
+  "published_at": "2026-10-18T08:23:28.827615Z",
+  "item_count": 27
 }
