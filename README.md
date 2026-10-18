@@ -81,7 +81,7 @@ python -m app crawl --site amazon_us --country kr --limit 5 --concurrency 2 --mi
 
 ## 자동 수집 (격주, `.github/workflows/scheduled-crawl.yml`)
 
-2주마다 월요일 06:17 KST (Japan 수집 이후)에 전체 사이트 × 국가(`amazon_us` × 7개국, limit 50)를 수집해 대시보드에 게시하고 `main`에 커밋합니다. 결과는 텔레그램으로 받습니다.
+2주마다 월요일 05:17 KST (Japan 수집 이후)에 전체 사이트 × 국가(`amazon_us` × 7개국, limit 50)를 수집해 대시보드에 게시하고 `main`에 커밋합니다. 결과는 텔레그램으로 받습니다.
 
 흐름:
 1. `gate` job (GitHub 서버): cron은 매주 돌고, epoch 주차 `floor(unix/604800) % 2 == 1`인 주만 통과 → 정확히 14일 간격 (수동 실행은 항상 통과)

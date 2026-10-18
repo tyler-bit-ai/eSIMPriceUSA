@@ -8,7 +8,7 @@ name: Scheduled Crawl
 # - Each run commits data/automation/last_run.json, so the schedule never hits the 60-day auto-disable.
 on:
   schedule:
-    - cron: "17 21 * * 0" # Mon 06:17 KST (after the eSIMPriceJapan crawl on the same Mac)
+    - cron: "17 20 * * 0" # Mon 05:17 KST (after the eSIMPriceJapan crawl on the same Mac)
   workflow_dispatch:
     inputs:
       limit:
