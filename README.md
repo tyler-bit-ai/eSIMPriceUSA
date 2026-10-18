@@ -102,7 +102,7 @@ User-Agent는 실제 OS·Chromium 버전과 일치시키고 `Headless` 표기만
 gh workflow run scheduled-crawl.yml                                          # 전체 수집 + 게시
 gh workflow run scheduled-crawl.yml -f limit=5 -f only="amazon_us:kr" -f publish=false   # 테스트 (게시 안 함)
 gh run list --workflow scheduled-crawl.yml
-cd ~/actions-runner-esim-us && ./svc.sh status                               # runner 상태
+cd ~/Projects/actions-runner/eSIMPriceUSA && ./svc.sh status                               # runner 상태
 ```
 
 로컬 실행 (macOS):
