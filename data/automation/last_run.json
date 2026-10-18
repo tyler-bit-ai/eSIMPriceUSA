@@ -1,60 +1,79 @@
 {
-  "started_at": "2026-10-18T09:04:10Z",
-  "finished_at": "2026-10-18T09:08:15Z",
-  "status": "failure",
-  "published": 0,
-  "total": 5,
-  "limit": 100,
+  "started_at": "2026-10-18T22:28:40Z",
+  "finished_at": "2026-10-18T22:44:45Z",
+  "status": "partial_success",
+  "published": 2,
+  "total": 7,
+  "blocked_sites": [
+    "amazon_us"
+  ],
+  "limit": 50,
   "results": [
     {
       "site": "amazon_us",
-      "country": "th",
-      "status": "skipped_low_count",
-      "item_count": 0,
+      "country": "kr",
+      "status": "crawled",
+      "item_count": 49,
       "failed_count": 0,
-      "reason": "0 < 18 (previous 59)",
+      "reason": "",
+      "previous_count": 92,
+      "duration_s": 240
+    },
+    {
+      "site": "amazon_us",
+      "country": "vn",
+      "status": "crawled",
+      "item_count": 46,
+      "failed_count": 0,
+      "reason": "",
+      "previous_count": 27,
+      "duration_s": 249
+    },
+    {
+      "site": "amazon_us",
+      "country": "th",
+      "status": "blocked",
+      "item_count": 0,
+      "failed_count": 1,
+      "reason": "amazon_us blocked: http_503 at https://www.amazon.com/s?k=eSIM+Thailand&page=2",
       "previous_count": 59,
-      "duration_s": 49
+      "duration_s": 4
     },
     {
       "site": "amazon_us",
       "country": "tw",
-      "status": "skipped_low_count",
-      "item_count": 2,
+      "status": "skipped_site_blocked",
+      "item_count": 0,
       "failed_count": 0,
-      "reason": "2 < 11 (previous 34)",
-      "previous_count": 34,
-      "duration_s": 48
+      "reason": "amazon_us blocked earlier in this run",
+      "duration_s": 0
     },
     {
       "site": "amazon_us",
       "country": "hk",
-      "status": "skipped_low_count",
+      "status": "skipped_site_blocked",
       "item_count": 0,
       "failed_count": 0,
-      "reason": "0 < 9 (previous 30)",
-      "previous_count": 30,
-      "duration_s": 50
+      "reason": "amazon_us blocked earlier in this run",
+      "duration_s": 0
     },
     {
       "site": "amazon_us",
       "country": "mo",
-      "status": "skipped_low_count",
-      "item_count": 1,
+      "status": "skipped_site_blocked",
+      "item_count": 0,
       "failed_count": 0,
-      "reason": "1 < 9 (previous 30)",
-      "previous_count": 30,
-      "duration_s": 50
+      "reason": "amazon_us blocked earlier in this run",
+      "duration_s": 0
     },
     {
       "site": "amazon_us",
       "country": "jp",
-      "status": "skipped_low_count",
-      "item_count": 2,
+      "status": "skipped_site_blocked",
+      "item_count": 0,
       "failed_count": 0,
-      "reason": "2 < 30 (previous 100)",
-      "previous_count": 100,
-      "duration_s": 48
+      "reason": "amazon_us blocked earlier in this run",
+      "duration_s": 0
     }
   ]
 }
