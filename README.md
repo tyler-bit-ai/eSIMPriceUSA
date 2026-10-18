@@ -81,13 +81,16 @@ python -m app crawl --site amazon_us --country kr --limit 5 --concurrency 2 --mi
 
 ## 자동 수집 (격주, `.github/workflows/scheduled-crawl.yml`)
 
-2주마다 월요일 06:17 KST (Japan 수집 이후)에 전체 사이트 × 국가(`amazon_us` × 7개국, limit 100)를 수집해 대시보드에 게시하고 `main`에 커밋합니다. 결과는 텔레그램으로 받습니다.
+2주마다 월요일 06:17 KST (Japan 수집 이후)에 전체 사이트 × 국가(`amazon_us` × 7개국, limit 50)를 수집해 대시보드에 게시하고 `main`에 커밋합니다. 결과는 텔레그램으로 받습니다.
 
 흐름:
 1. `gate` job (GitHub 서버): cron은 매주 돌고, epoch 주차 `floor(unix/604800) % 2 == 1`인 주만 통과 → 정확히 14일 간격 (수동 실행은 항상 통과)
 2. `crawl` job (**맥미니 self-hosted runner**, label `esim-us`): venv 설치 → `python -m tools.scheduled_crawl` → `pytest` → `dashboard/data`, `data/automation` 커밋/push → Pages 빌드 요청 → 텔레그램 알림
    - Amazon은 데이터센터 IP에서 CAPTCHA/차단이 나므로 가정용 IP인 맥미니에서 실행합니다 (우회는 하지 않음).
    - fork PR이 runner에서 코드를 실행하지 못하도록 이 workflow에는 `pull_request` 트리거를 넣지 않습니다.
+
+amazon.com은 짧은 시간에 요청이 몰리면 IP를 일시 차단(503/로봇 확인 페이지)하므로 USA는 limit 50, 요청 간격 4~8초, 국가 사이 3~5분 휴식으로 천천히 수집합니다 (전체 약 50분). 차단이 감지되면 재시도 없이 남은 국가를 건너뛰고 텔레그램에 `🚫 차단 감지`로 알립니다.
+User-Agent는 실제 OS·Chromium 버전과 일치시키고 `Headless` 표기만 뺍니다 (`app/adapters/base.py` `desktop_user_agent`). 그 외 브라우저 신호 위장(stealth)은 하지 않습니다.
 
 게시 품질 게이트: site × country별 결과가 `ceil(min(직전 게시 개수, limit) × 0.3)`개보다 적으면 게시하지 않고 기존 latest를 유지합니다 (차단/빈 검색 결과로 대시보드가 깨지는 것 방지). 결과는 `data/automation/last_run.json`에 남고 실행마다 `data/automation/history.jsonl`에 한 줄 추가됩니다.
 매 실행이 커밋을 남기므로 GitHub의 "60일 무활동 시 schedule 비활성화"에 걸리지 않습니다.

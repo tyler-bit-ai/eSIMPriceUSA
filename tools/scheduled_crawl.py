@@ -9,6 +9,7 @@ import argparse
 import json
 import logging
 import math
+import random
 import subprocess
 import sys
 import time
@@ -94,6 +95,7 @@ def run_targets(targets: list[tuple[str, str]], work_dir: Path, args: argparse.N
     """Run targets in order; once a site blocks us, skip its remaining countries (retrying prolongs the block)."""
     results: list[dict] = []
     blocked_sites: set[str] = set()
+    crawled_any = False
     for site, country in targets:
         if site in blocked_sites:
             logger.warning("%s/%s -> skipped: %s blocked earlier in this run", site, country, site)
@@ -102,7 +104,12 @@ def run_targets(targets: list[tuple[str, str]], work_dir: Path, args: argparse.N
                 "failed_count": 0, "reason": f"{site} blocked earlier in this run", "duration_s": 0,
             })
             continue
+        if crawled_any and args.target_pause_max > 0:
+            pause = random.uniform(args.target_pause_min, args.target_pause_max)
+            logger.info("pausing %.0fs before %s/%s", pause, site, country)
+            time.sleep(pause)
         result = run_target(site, country, work_dir, args)
+        crawled_any = True
         if result["status"] == "blocked":
             blocked_sites.add(site)
         results.append(result)
@@ -169,10 +176,13 @@ def _now() -> str:
 
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--limit", type=int, default=100)
+    # amazon.com throttles bursts: smaller limit, slower pacing and a pause between countries.
+    parser.add_argument("--limit", type=int, default=50)
     parser.add_argument("--concurrency", type=int, default=2)
-    parser.add_argument("--min-delay", type=float, default=2.0)
-    parser.add_argument("--max-delay", type=float, default=4.0)
+    parser.add_argument("--min-delay", type=float, default=4.0)
+    parser.add_argument("--max-delay", type=float, default=8.0)
+    parser.add_argument("--target-pause-min", type=float, default=180, help="seconds between site × country crawls")
+    parser.add_argument("--target-pause-max", type=float, default=300)
     parser.add_argument("--only", action="append", default=[], help="site:country (repeatable)")
     parser.add_argument("--min-items", type=int, default=0, help="override the publish threshold")
     parser.add_argument("--data-dir", type=Path, default=REPO_ROOT / "dashboard" / "data")

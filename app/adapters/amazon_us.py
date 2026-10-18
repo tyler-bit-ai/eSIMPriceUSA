@@ -8,7 +8,7 @@ from urllib.parse import quote_plus
 from bs4 import BeautifulSoup
 from playwright.async_api import Browser, BrowserContext, Page, async_playwright
 
-from app.adapters.base import AMAZON_BLOCK_MARKERS, MarketplaceAdapter, SiteBlockedError, block_reason
+from app.adapters.base import AMAZON_BLOCK_MARKERS, MarketplaceAdapter, SiteBlockedError, block_reason, desktop_user_agent
 from app.extractors.heuristics import (
     extract_asin,
     extract_bestseller_badge,
@@ -43,11 +43,7 @@ class AmazonUSAdapter(MarketplaceAdapter):
         browser = await pw.chromium.launch(headless=True)
         context = await browser.new_context(
             locale="en-US",
-            user_agent=(
-                "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
-                "AppleWebKit/537.36 (KHTML, like Gecko) "
-                "Chrome/123.0.0.0 Safari/537.36"
-            ),
+            user_agent=desktop_user_agent(browser.version),
             extra_http_headers={
                 "Accept-Language": "en-US,en;q=0.9",
             },

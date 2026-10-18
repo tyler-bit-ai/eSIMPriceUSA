@@ -13,7 +13,7 @@ on:
     inputs:
       limit:
         description: "Items per site × country"
-        default: "100"
+        default: "50"
       only:
         description: "Space-separated site:country targets (empty = all)"
         default: ""
@@ -69,7 +69,7 @@ jobs:
       - name: Crawl and publish
         id: crawl
         env:
-          LIMIT: ${{ inputs.limit || '100' }}
+          LIMIT: ${{ inputs.limit || '50' }}
           ONLY: ${{ inputs.only }}
           PUBLISH: ${{ inputs.publish != false }}
         run: |
