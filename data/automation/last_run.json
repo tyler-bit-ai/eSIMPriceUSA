@@ -12,7 +12,7 @@
     {
       "site": "amazon_us",
       "country": "kr",
-      "status": "crawled",
+      "status": "published",
       "item_count": 49,
       "failed_count": 0,
       "reason": "",
@@ -22,7 +22,7 @@
     {
       "site": "amazon_us",
       "country": "vn",
-      "status": "crawled",
+      "status": "published",
       "item_count": 46,
       "failed_count": 0,
       "reason": "",
@@ -75,5 +75,6 @@
       "reason": "amazon_us blocked earlier in this run",
       "duration_s": 0
     }
-  ]
+  ],
+  "note": "recovered: scheduled run crawled with --no-publish (workflow bug), published afterwards"
 }

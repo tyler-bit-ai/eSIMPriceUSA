@@ -7,12 +7,12 @@
         "csv": "sites/amazon_us/kr/latest.csv",
         "jsonl": "sites/amazon_us/kr/latest.jsonl",
         "metadata": "sites/amazon_us/kr/metadata.json",
-        "source": "data/crawls/scheduled_2026-10-18/amazon_us_kr/results.jsonl",
-        "crawled_at": "2026-10-18T08:19:15.978032Z",
-        "published_at": "2026-10-18T08:19:16.147622Z",
-        "item_count": 92,
+        "source": "data/crawls/scheduled_2026-10-18_recovered/amazon_us_kr/results.jsonl",
+        "crawled_at": "2026-10-18T22:32:39.747387Z",
+        "published_at": "2026-10-19T14:04:50.750631Z",
+        "item_count": 49,
         "query": "",
-        "limit": 100
+        "limit": 50
       },
       "vn": {
         "site": "amazon_us",
@@ -20,12 +20,12 @@
         "csv": "sites/amazon_us/vn/latest.csv",
         "jsonl": "sites/amazon_us/vn/latest.jsonl",
         "metadata": "sites/amazon_us/vn/metadata.json",
-        "source": "data/crawls/scheduled_2026-10-18/amazon_us_vn/results.jsonl",
-        "crawled_at": "2026-10-18T08:23:28.716773Z",
-        "published_at": "2026-10-18T08:23:28.827615Z",
-        "item_count": 27,
+        "source": "data/crawls/scheduled_2026-10-18_recovered/amazon_us_vn/results.jsonl",
+        "crawled_at": "2026-10-18T22:40:39.892418Z",
+        "published_at": "2026-10-19T14:04:50.781288Z",
+        "item_count": 46,
         "query": "",
-        "limit": 100
+        "limit": 50
       },
       "th": {
         "site": "amazon_us",
@@ -95,6 +95,36 @@
     }
   },
   "runs": [
+    {
+      "id": "20261018T224039Z_amazon_us_vn_amazon_us_vn",
+      "site": "amazon_us",
+      "country": "vn",
+      "label": "2026-10-19 07:40 | amazon_us | vn | amazon_us_vn | 46 items",
+      "source": "data/crawls/scheduled_2026-10-18_recovered/amazon_us_vn/results.jsonl",
+      "crawled_at": "2026-10-18T22:40:39.892418Z",
+      "published_at": "2026-10-19T14:04:50.781288Z",
+      "item_count": 46,
+      "csv": "",
+      "jsonl": "runs/20261018T224039Z_amazon_us_vn_amazon_us_vn.jsonl",
+      "metadata": "sites/amazon_us/vn/metadata.json",
+      "query": "",
+      "limit": 50
+    },
+    {
+      "id": "20261018T223239Z_amazon_us_kr_amazon_us_kr",
+      "site": "amazon_us",
+      "country": "kr",
+      "label": "2026-10-19 07:32 | amazon_us | kr | amazon_us_kr | 49 items",
+      "source": "data/crawls/scheduled_2026-10-18_recovered/amazon_us_kr/results.jsonl",
+      "crawled_at": "2026-10-18T22:32:39.747387Z",
+      "published_at": "2026-10-19T14:04:50.750631Z",
+      "item_count": 49,
+      "csv": "",
+      "jsonl": "runs/20261018T223239Z_amazon_us_kr_amazon_us_kr.jsonl",
+      "metadata": "sites/amazon_us/kr/metadata.json",
+      "query": "",
+      "limit": 50
+    },
     {
       "id": "20261018T082328Z_amazon_us_vn_amazon_us_vn",
       "site": "amazon_us",

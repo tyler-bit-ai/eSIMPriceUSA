@@ -2,9 +2,9 @@
   "site": "amazon_us",
   "country": "kr",
   "query": "",
-  "limit": 100,
-  "source": "data/crawls/scheduled_2026-10-18/amazon_us_kr/results.jsonl",
-  "crawled_at": "2026-10-18T08:19:15.978032Z",
-  "published_at": "2026-10-18T08:19:16.147622Z",
-  "item_count": 92
+  "limit": 50,
+  "source": "data/crawls/scheduled_2026-10-18_recovered/amazon_us_kr/results.jsonl",
+  "crawled_at": "2026-10-18T22:32:39.747387Z",
+  "published_at": "2026-10-19T14:04:50.750631Z",
+  "item_count": 49
 }

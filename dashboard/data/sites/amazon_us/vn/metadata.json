@@ -2,9 +2,9 @@
   "site": "amazon_us",
   "country": "vn",
   "query": "",
-  "limit": 100,
-  "source": "data/crawls/scheduled_2026-10-18/amazon_us_vn/results.jsonl",
-  "crawled_at": "2026-10-18T08:23:28.716773Z",
-  "published_at": "2026-10-18T08:23:28.827615Z",
-  "item_count": 27
+  "limit": 50,
+  "source": "data/crawls/scheduled_2026-10-18_recovered/amazon_us_vn/results.jsonl",
+  "crawled_at": "2026-10-18T22:40:39.892418Z",
+  "published_at": "2026-10-19T14:04:50.781288Z",
+  "item_count": 46
 }
