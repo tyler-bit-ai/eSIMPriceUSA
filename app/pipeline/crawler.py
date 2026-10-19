@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import json
 import logging
 from pathlib import Path
 
@@ -12,6 +13,17 @@ from app.pipeline.validation import validate_product
 from app.utils.delay import random_delay
 
 logger = logging.getLogger(__name__)
+
+# A blocked crawl leaves these in out_dir; `run(resume=True)` reuses them so a retry only
+# requests the detail pages that were not collected yet.
+STUBS_FILE = "stubs.jsonl"
+
+
+def _read_models(path: Path, model):
+    if not path.exists():
+        return []
+    rows = (line for line in path.read_text(encoding="utf-8-sig").splitlines() if line.strip())
+    return [model.model_validate(json.loads(row)) for row in rows]
 
 
 class CrawlPipeline:
@@ -33,20 +45,34 @@ class CrawlPipeline:
         self.max_retries = max_retries
         self.detail_timeout = max(0.01, detail_timeout)
 
-    async def run(self, query: str, limit: int, country: str | None = None) -> CrawlResult:
-        try:
-            stubs = await self.adapter.search(query=query, limit=limit)
-        except SiteBlockedError as exc:
-            logger.error("search blocked, stopping: %s", exc)
-            return CrawlResult(items=[], invalid_items=[], failures=[self._blocked_error(exc, country)], blocked=str(exc))
-        if country:
-            stubs = [stub.model_copy(update={"country": country}) for stub in stubs]
-        logger.info("start crawl details: %s items", len(stubs))
-        semaphore = asyncio.Semaphore(self.concurrency)
+    async def run(self, query: str, limit: int, country: str | None = None, resume: bool = False) -> CrawlResult:
+        stubs_path = self.out_dir / STUBS_FILE
+        stubs = _read_models(stubs_path, ProductStub) if resume else []
+        if stubs:
+            logger.info("resume: reusing %s search results from %s", len(stubs), stubs_path)
+        else:
+            stubs_path.unlink(missing_ok=True)  # never resume from an older crawl's search
+            try:
+                stubs = await self.adapter.search(query=query, limit=limit)
+            except SiteBlockedError as exc:
+                logger.error("search blocked, stopping: %s", exc)
+                return CrawlResult(items=[], invalid_items=[], failures=[self._blocked_error(exc, country)], blocked=str(exc))
+            if country:
+                stubs = [stub.model_copy(update={"country": country}) for stub in stubs]
+            self.out_dir.mkdir(parents=True, exist_ok=True)
+            stubs_path.write_text("".join(stub.model_dump_json() + "\n" for stub in stubs), encoding="utf-8")
 
         items: list[ProductDetail] = []
         invalid_items: list[InvalidItem] = []
         failures: list[CrawlError] = []
+        if resume:
+            items = _read_models(self.out_dir / "results.jsonl", ProductDetail)
+            invalid_items = _read_models(self.out_dir / "invalid.jsonl", InvalidItem)
+            done = {str(item.product_url) for item in items} | {item.product_url for item in invalid_items}
+            stubs = [stub for stub in stubs if str(stub.product_url) not in done]
+            logger.info("resume: %s items already collected, %s left", len(done), len(stubs))
+        logger.info("start crawl details: %s items", len(stubs))
+        semaphore = asyncio.Semaphore(self.concurrency)
         blocked: list[str] = []
 
         async def worker(stub: ProductStub) -> None:
@@ -90,7 +116,7 @@ class CrawlPipeline:
 
         await asyncio.gather(*(worker(stub) for stub in stubs))
         if blocked:
-            logger.error("blocked after %s items; %s of %s detail pages skipped", len(items), len(stubs) - len(items) - len(invalid_items) - len(failures), len(stubs))
+            logger.error("blocked with %s items collected; a resume run continues from here", len(items) + len(invalid_items))
         return CrawlResult(items=items, invalid_items=invalid_items, failures=failures, blocked=blocked[0] if blocked else None)
 
     def _blocked_error(self, exc: SiteBlockedError, country: str | None, stub: ProductStub | None = None) -> CrawlError:

@@ -1,7 +1,9 @@
 """Crawl every site × country, publish the healthy results and record a run summary.
 
 Used by .github/workflows/scheduled-crawl.yml (self-hosted runner). One target failing
-does not stop the others. Exit code: 0 all published, 2 partial, 1 nothing published.
+does not stop the others. When amazon.com blocks the run, the blocked and skipped targets
+are retried after a cooldown with `--resume`, so already collected items are not requested
+again. Exit code: 0 all published, 2 partial, 1 nothing published.
 """
 from __future__ import annotations
 
@@ -10,6 +12,7 @@ import json
 import logging
 import math
 import random
+import shutil
 import subprocess
 import sys
 import time
@@ -28,6 +31,7 @@ AUTOMATION_DIR = REPO_ROOT / "data" / "automation"
 # (CAPTCHA, empty search page); publishing it would replace a good latest with a broken one.
 MIN_RATIO_OF_PREVIOUS = 0.3
 TARGET_TIMEOUT_S = 45 * 60
+RETRY_STATUSES = ("blocked", "skipped_site_blocked")
 
 
 def default_targets() -> list[tuple[str, str]]:
@@ -60,7 +64,7 @@ def min_items_for(previous: int | None, limit: int) -> int:
     return max(1, math.ceil(min(previous or 0, limit) * MIN_RATIO_OF_PREVIOUS))
 
 
-def crawl_one(site: str, country: str, out_dir: Path, args: argparse.Namespace) -> tuple[int | None, str]:
+def crawl_one(site: str, country: str, out_dir: Path, args: argparse.Namespace, resume: bool = False) -> tuple[int | None, str]:
     cmd = [
         sys.executable, "-m", "app", "crawl",
         "--site", site, "--country", country,
@@ -69,7 +73,9 @@ def crawl_one(site: str, country: str, out_dir: Path, args: argparse.Namespace) 
         "--min-delay", str(args.min_delay), "--max-delay", str(args.max_delay),
         "--out", str(out_dir),
     ]
-    logger.info("crawl start %s/%s -> %s", site, country, out_dir)
+    if resume:
+        cmd.append("--resume")
+    logger.info("crawl %s %s/%s -> %s", "resume" if resume else "start", site, country, out_dir)
     try:
         completed = subprocess.run(cmd, cwd=REPO_ROOT, timeout=TARGET_TIMEOUT_S)
     except subprocess.TimeoutExpired:
@@ -91,7 +97,7 @@ def first_blocked_message(failed_jsonl: Path) -> str:
     return "bot check / throttle page"
 
 
-def run_targets(targets: list[tuple[str, str]], work_dir: Path, args: argparse.Namespace) -> list[dict]:
+def run_targets(targets: list[tuple[str, str]], work_dir: Path, args: argparse.Namespace, resume: bool = False) -> list[dict]:
     """Run targets in order; once a site blocks us, skip its remaining countries (retrying prolongs the block)."""
     results: list[dict] = []
     blocked_sites: set[str] = set()
@@ -99,6 +105,8 @@ def run_targets(targets: list[tuple[str, str]], work_dir: Path, args: argparse.N
     for site, country in targets:
         if site in blocked_sites:
             logger.warning("%s/%s -> skipped: %s blocked earlier in this run", site, country, site)
+            if not resume:  # a later resume must start from a fresh search, not an older run's leftovers
+                shutil.rmtree(work_dir / f"{site}_{country}", ignore_errors=True)
             results.append({
                 "site": site, "country": country, "status": "skipped_site_blocked", "item_count": 0,
                 "failed_count": 0, "reason": f"{site} blocked earlier in this run", "duration_s": 0,
@@ -108,7 +116,7 @@ def run_targets(targets: list[tuple[str, str]], work_dir: Path, args: argparse.N
             pause = random.uniform(args.target_pause_min, args.target_pause_max)
             logger.info("pausing %.0fs before %s/%s", pause, site, country)
             time.sleep(pause)
-        result = run_target(site, country, work_dir, args)
+        result = run_target(site, country, work_dir, args, resume)
         crawled_any = True
         if result["status"] == "blocked":
             blocked_sites.add(site)
@@ -116,12 +124,33 @@ def run_targets(targets: list[tuple[str, str]], work_dir: Path, args: argparse.N
     return results
 
 
-def run_target(site: str, country: str, work_dir: Path, args: argparse.Namespace) -> dict:
+def run_with_retries(targets: list[tuple[str, str]], work_dir: Path, args: argparse.Namespace) -> tuple[list[dict], int]:
+    """First pass, then up to --retry-rounds resumes of the blocked targets after a cooldown."""
+    results = run_targets(targets, work_dir, args)
+    rounds = 0
+    while rounds < args.retry_rounds:
+        pending = [(r["site"], r["country"]) for r in results if r["status"] in RETRY_STATUSES]
+        if not pending:
+            break
+        rounds += 1
+        cooldown = random.uniform(args.block_cooldown_min, args.block_cooldown_max) * 60
+        logger.warning("retry %s/%s in %.0f min: %s", rounds, args.retry_rounds, cooldown / 60,
+                       ", ".join(f"{s}/{c}" for s, c in pending))
+        time.sleep(cooldown)
+        retried = {(r["site"], r["country"]): r for r in run_targets(pending, work_dir, args, resume=True)}
+        for i, r in enumerate(results):
+            new = retried.get((r["site"], r["country"]))
+            if new:
+                results[i] = {**new, "attempts": r.get("attempts", 1) + 1}
+    return results, rounds
+
+
+def run_target(site: str, country: str, work_dir: Path, args: argparse.Namespace, resume: bool = False) -> dict:
     started = time.monotonic()
     out_dir = work_dir / f"{site}_{country}"
     result = {"site": site, "country": country, "status": "failed", "item_count": 0, "failed_count": 0, "reason": ""}
 
-    code, reason = crawl_one(site, country, out_dir, args)
+    code, reason = crawl_one(site, country, out_dir, args, resume=resume)
     result["item_count"] = count_lines(out_dir / "results.jsonl")
     result["failed_count"] = count_lines(out_dir / "failed.jsonl")
     previous = previous_count(args.data_dir, site, country)
@@ -183,6 +212,9 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--max-delay", type=float, default=8.0)
     parser.add_argument("--target-pause-min", type=float, default=180, help="seconds between site × country crawls")
     parser.add_argument("--target-pause-max", type=float, default=300)
+    parser.add_argument("--retry-rounds", type=int, default=2, help="resumes of blocked targets after a cooldown")
+    parser.add_argument("--block-cooldown-min", type=float, default=120, help="minutes to wait after a block")
+    parser.add_argument("--block-cooldown-max", type=float, default=180)
     parser.add_argument("--only", action="append", default=[], help="site:country (repeatable)")
     parser.add_argument("--min-items", type=int, default=0, help="override the publish threshold")
     parser.add_argument("--data-dir", type=Path, default=REPO_ROOT / "dashboard" / "data")
@@ -197,7 +229,7 @@ def main(argv: list[str] | None = None) -> int:
     work_dir = args.work_dir or REPO_ROOT / "data" / "crawls" / f"scheduled_{started_at[:10]}"
     logger.info("%s targets, limit=%s, work_dir=%s", len(targets), args.limit, work_dir)
 
-    results = run_targets(targets, work_dir, args)
+    results, retry_rounds = run_with_retries(targets, work_dir, args)
     summary = {
         "started_at": started_at,
         "finished_at": _now(),
@@ -205,6 +237,7 @@ def main(argv: list[str] | None = None) -> int:
         "published": sum(r["status"] in ("published", "crawled") for r in results),
         "total": len(results),
         "blocked_sites": sorted({r["site"] for r in results if r["status"] == "blocked"}),
+        "retry_rounds": retry_rounds,
         "limit": args.limit,
         "results": results,
     }

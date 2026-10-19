@@ -58,7 +58,7 @@ def test_search_block_returns_blocked_result(tmp_path):
 
 
 def test_blocked_site_skips_its_remaining_countries(tmp_path, monkeypatch):
-    def crawl(site, country, out_dir, args):
+    def crawl(site, country, out_dir, args, resume=False):
         out_dir.mkdir(parents=True, exist_ok=True)
         if site == SITE and country == "vn":
             (out_dir / "failed.jsonl").write_text(json.dumps({"error_type": "SiteBlockedError", "error_message": "blocked: http_503"}) + "\n")
@@ -66,7 +66,7 @@ def test_blocked_site_skips_its_remaining_countries(tmp_path, monkeypatch):
         return _fake_crawl(50)(site, country, out_dir, args)
 
     calls = []
-    monkeypatch.setattr(sc, "crawl_one", lambda *a: (calls.append(a[:2]), crawl(*a))[1])
+    monkeypatch.setattr(sc, "crawl_one", lambda *a, **k: (calls.append(a[:2]), crawl(*a, **k))[1])
     monkeypatch.setattr(sc, "publish", lambda *a, **k: None)
     targets = [(SITE, "kr"), (SITE, "vn"), (SITE, "th"), (OTHER, "kr")]
     results = sc.run_targets(targets, tmp_path / "w", _args(tmp_path))
@@ -90,7 +90,7 @@ def test_telegram_message_reports_block():
 
 
 def test_pause_only_between_real_crawls(tmp_path, monkeypatch):
-    def crawl(site, country, out_dir, args):
+    def crawl(site, country, out_dir, args, resume=False):
         if site == SITE and country == "vn":
             out_dir.mkdir(parents=True, exist_ok=True)
             return BLOCKED_EXIT_CODE, "crawl exit 3"
@@ -109,3 +109,91 @@ def test_desktop_user_agent_matches_browser_version(monkeypatch):
     monkeypatch.setattr("app.adapters.base.sys.platform", "darwin")
     ua = desktop_user_agent("156.0.8078.4")
     assert "Macintosh" in ua and "Chrome/156.0.0.0" in ua and "Headless" not in ua
+
+
+class ResumingAdapter(BlockingAdapter):
+    """Blocks on the 2nd detail page of the first attempt; a resume must not search again."""
+
+    def __init__(self, blocks=True):
+        super().__init__()
+        self.blocks = blocks
+        self.searches = 0
+
+    async def search(self, query, limit):
+        self.searches += 1
+        return await super().search(query, limit)
+
+    async def fetch_detail(self, stub):
+        if not self.blocks:
+            self.calls.append(stub.asin)
+            return ProductDetail(title="x", product_url=stub.product_url, asin=stub.asin)
+        return await super().fetch_detail(stub)
+
+
+def test_resume_reuses_search_and_fetches_only_missing_items(tmp_path):
+    from app.output.writers import write_invalid_jsonl, write_jsonl
+
+    def collected(result):  # the fake titles fail the travel filter, so items land in invalid_items
+        return sorted(i.asin for i in result.items + result.invalid_items)
+
+    first = asyncio.run(_pipeline(ResumingAdapter(), tmp_path).run(query="q", limit=4, country="kr"))
+    assert first.blocked and collected(first) == ["B000000000"] and (tmp_path / "stubs.jsonl").exists()
+    write_jsonl(tmp_path / "results.jsonl", first.items)
+    write_invalid_jsonl(tmp_path / "invalid.jsonl", first.invalid_items)
+
+    adapter = ResumingAdapter(blocks=False)
+    result = asyncio.run(_pipeline(adapter, tmp_path).run(query="q", limit=4, country="kr", resume=True))
+    assert adapter.searches == 0 and adapter.calls == ["B000000001", "B000000002", "B000000003"]
+    assert result.blocked is None and collected(result) == [f"B00000000{i}" for i in range(4)]
+
+
+def test_fresh_crawl_ignores_old_search_results(tmp_path):
+    (tmp_path / "stubs.jsonl").write_text(json.dumps({"product_url": "https://example/dp/OLD"}) + "\n")
+    adapter = ResumingAdapter(blocks=False)
+    asyncio.run(_pipeline(adapter, tmp_path).run(query="q", limit=2))
+    assert adapter.searches == 1 and "OLD" not in (tmp_path / "stubs.jsonl").read_text()
+
+
+def test_blocked_targets_are_resumed_after_cooldown(tmp_path, monkeypatch):
+    attempts = []
+
+    def crawl(site, country, out_dir, args, resume=False):
+        attempts.append((country, resume))
+        if country == "vn" and not resume:
+            out_dir.mkdir(parents=True, exist_ok=True)
+            return BLOCKED_EXIT_CODE, "crawl exit 3"
+        return _fake_crawl(50)(site, country, out_dir, args)
+
+    sleeps = []
+    monkeypatch.setattr(sc, "crawl_one", crawl)
+    monkeypatch.setattr(sc, "publish", lambda *a, **k: None)
+    monkeypatch.setattr(sc.time, "sleep", sleeps.append)
+    args = _args(tmp_path, retry_rounds=2, block_cooldown_min=120, block_cooldown_max=120)
+    results, rounds = sc.run_with_retries([(SITE, "kr"), (SITE, "vn"), (SITE, "th")], tmp_path / "w", args)
+    assert rounds == 1 and sleeps == [7200]
+    assert attempts == [("kr", False), ("vn", False), ("vn", True), ("th", True)]
+    assert [(r["status"], r.get("attempts", 1)) for r in results] == [("published", 1), ("published", 2), ("published", 2)]
+
+
+def test_retries_stop_after_the_configured_rounds(tmp_path, monkeypatch):
+    def crawl(site, country, out_dir, args, resume=False):
+        out_dir.mkdir(parents=True, exist_ok=True)
+        return BLOCKED_EXIT_CODE, "crawl exit 3"
+
+    monkeypatch.setattr(sc, "crawl_one", crawl)
+    monkeypatch.setattr(sc.time, "sleep", lambda s: None)
+    results, rounds = sc.run_with_retries([(SITE, "kr"), (SITE, "vn")], tmp_path / "w", _args(tmp_path, retry_rounds=2))
+    assert rounds == 2 and [(r["status"], r["attempts"]) for r in results] == [("blocked", 3), ("skipped_site_blocked", 3)]
+
+
+def test_telegram_message_reports_retries():
+    summary = {
+        "started_at": "2026-10-18T20:17:00Z", "finished_at": "2026-10-19T01:00:00Z", "status": "success",
+        "published": 2, "total": 2, "blocked_sites": [], "retry_rounds": 1,
+        "results": [
+            {"site": SITE, "country": "kr", "status": "published", "item_count": 49},
+            {"site": SITE, "country": "th", "status": "published", "item_count": 50, "attempts": 2},
+        ],
+    }
+    text = build_message("t", summary, [])
+    assert "th 50🔁" in text and "재시도 1회" in text and "테스트 실행" not in text

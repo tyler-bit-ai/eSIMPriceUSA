@@ -89,7 +89,10 @@ python -m app crawl --site amazon_us --country kr --limit 5 --concurrency 2 --mi
    - Amazon은 데이터센터 IP에서 CAPTCHA/차단이 나므로 가정용 IP인 맥미니에서 실행합니다 (우회는 하지 않음).
    - fork PR이 runner에서 코드를 실행하지 못하도록 이 workflow에는 `pull_request` 트리거를 넣지 않습니다.
 
-amazon.com은 짧은 시간에 요청이 몰리면 IP를 일시 차단(503/로봇 확인 페이지)하므로 USA는 limit 50, 요청 간격 4~8초, 국가 사이 3~5분 휴식으로 천천히 수집합니다 (전체 약 50분). 차단이 감지되면 재시도 없이 남은 국가를 건너뛰고 텔레그램에 `🚫 차단 감지`로 알립니다.
+amazon.com은 짧은 시간에 요청이 몰리면 IP를 일시 차단(503/로봇 확인 페이지)하므로 USA는 limit 50, 요청 간격 4~8초, 국가 사이 3~5분 휴식으로 천천히 수집합니다 (전체 약 50분). 차단이 감지되면 그 자리에서 멈추고(차단 페이지는 재요청하지 않음) 남은 국가를 건너뜁니다. 그 뒤 **2~3시간 쉬고 이어서 수집**합니다 (최대 2회, `--retry-rounds`).
+- 이어서 수집할 때는 저장해 둔 검색 결과(`stubs.jsonl`)를 다시 쓰고, 이미 받은 상품은 건너뛰고 남은 상세 페이지만 요청합니다 (`python -m app crawl ... --resume`).
+- 재시도까지 끝나도 차단이 풀리지 않은 국가는 게시하지 않고 기존 대시보드 데이터를 유지하며, 텔레그램에 `🚫 차단 감지`로 알립니다. 재시도로 채운 국가는 `🔁`로 표시됩니다.
+- 재시도 대기 때문에 USA job은 최대 약 9시간까지 걸릴 수 있습니다 (`timeout-minutes: 600`). 수동 실행 시 `retry_rounds` 입력으로 조절합니다 (0 = 재시도 없음).
 User-Agent는 실제 OS·Chromium 버전과 일치시키고 `Headless` 표기만 뺍니다 (`app/adapters/base.py` `desktop_user_agent`). 그 외 브라우저 신호 위장(stealth)은 하지 않습니다.
 
 게시 품질 게이트: site × country별 결과가 `ceil(min(직전 게시 개수, limit) × 0.3)`개보다 적으면 게시하지 않고 기존 latest를 유지합니다 (차단/빈 검색 결과로 대시보드가 깨지는 것 방지). 결과는 `data/automation/last_run.json`에 남고 실행마다 `data/automation/history.jsonl`에 한 줄 추가됩니다.

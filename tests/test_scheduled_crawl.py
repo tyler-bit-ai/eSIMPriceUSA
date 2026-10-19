@@ -13,12 +13,13 @@ def _args(tmp_path: Path, **kw) -> argparse.Namespace:
         json.dumps({"latest": {"amazon_us": {"kr": {"csv": "x", "jsonl": "y", "item_count": 100}}}}), encoding="utf-8"
     )
     base = dict(limit=100, concurrency=2, min_delay=1, max_delay=2, min_items=0, data_dir=data, no_publish=False,
-                target_pause_min=0, target_pause_max=0)
+                target_pause_min=0, target_pause_max=0,
+                retry_rounds=0, block_cooldown_min=0, block_cooldown_max=0)
     return argparse.Namespace(**{**base, **kw})
 
 
 def _fake_crawl(n_items: int, code: int = 0):
-    def crawl(site, country, out_dir, args):
+    def crawl(site, country, out_dir, args, resume=False):
         out_dir.mkdir(parents=True, exist_ok=True)
         (out_dir / "results.jsonl").write_text("{}\n" * n_items, encoding="utf-8")
         (out_dir / "results.csv").write_text("", encoding="utf-8")

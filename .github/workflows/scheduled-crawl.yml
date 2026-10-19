@@ -17,6 +17,9 @@ on:
       only:
         description: "Space-separated site:country targets (empty = all)"
         default: ""
+      retry_rounds:
+        description: "Resumes of blocked targets after a 2-3 h cooldown (0 = no retry)"
+        default: "2"
       publish:
         description: "Publish to the dashboard (off = crawl test, commits only last_run.json)"
         type: boolean
@@ -46,7 +49,7 @@ jobs:
     needs: gate
     if: needs.gate.outputs.run == 'true'
     runs-on: [self-hosted, esim-us]
-    timeout-minutes: 300
+    timeout-minutes: 600 # first pass ~1 h + up to 2 × (2-3 h cooldown + resume)
     steps:
       - name: Record start time
         id: start
@@ -71,10 +74,12 @@ jobs:
         env:
           LIMIT: ${{ inputs.limit || '50' }}
           ONLY: ${{ inputs.only }}
-          PUBLISH: ${{ inputs.publish != false }}
+          RETRY_ROUNDS: ${{ inputs.retry_rounds || '2' }}
+          # Schedule runs have no inputs (null == false in expressions), so only a dispatch can turn publishing off.
+          PUBLISH: ${{ github.event_name != 'workflow_dispatch' || inputs.publish }}
         run: |
           set +e
-          args=(--limit "$LIMIT")
+          args=(--limit "$LIMIT" --retry-rounds "$RETRY_ROUNDS")
           [ "$PUBLISH" = "true" ] || args+=(--no-publish)
           for t in $ONLY; do args+=(--only "$t"); done
           .venv/bin/python -m tools.scheduled_crawl "${args[@]}"

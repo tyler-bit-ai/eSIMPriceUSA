@@ -59,17 +59,23 @@ def build_message(
         for r in summary.get("results", []):
             ok = r["status"] in ("published", "crawled")
             mark = "" if ok else "🚫" if r["status"] in ("blocked", "skipped_site_blocked") else "⚠️"
+            if r.get("attempts", 1) > 1:
+                mark += "🔁"
             by_site.setdefault(r["site"], []).append(f"{r['country']} {r['item_count']}{mark}")
             if r["status"] == "skipped_site_blocked":
                 skipped.setdefault(r["site"], []).append(r["country"])
             elif not ok:
                 problems.append(f"• {r['site']}/{r['country']} {r['status']}: {r.get('reason') or '-'}")
+        if any(r["status"] == "crawled" for r in summary.get("results", [])):
+            lines.append("ℹ️ 테스트 실행: 대시보드에 게시하지 않았습니다.")
         lines.append("")
         lines += [f"<b>{esc(site)}</b>: {esc(' · '.join(parts))}" for site, parts in by_site.items()]
         for site in summary.get("blocked_sites", []):
             rest = ", ".join(skipped.get(site, []))
             lines += ["", f"🚫 <b>{esc(site)} 차단 감지</b> (봇 확인/접속 제한 페이지) — "
                           + (f"남은 국가 수집 중단: {esc(rest)}" if rest else "이후 수집 중단") + ". 기존 대시보드 데이터는 유지됩니다."]
+        if summary.get("retry_rounds"):
+            lines += ["", f"🔁 차단 후 재시도 {summary['retry_rounds']}회: 대기 후 수집한 곳부터 이어서 수집했습니다."]
         if problems:
             lines += ["", *map(esc, problems)]
     else:
